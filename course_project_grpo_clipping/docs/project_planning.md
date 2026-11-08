@@ -1,137 +1,137 @@
-> **说明**：这是项目最初的规划文档（2026 年 9 月，写 proposal 之前），保留在这里供参考。部分内容已过时：
-> - 实际实验在 **NYU Torch 集群（单张 L40S）** 上运行，不是 Colab；
-> - 第五节里的脚本示例已被 [`grpo_clipping_experiment.py`](../grpo_clipping_experiment.py) 取代；
-> - 当前进度和结果见[分支首页 README](../../README.md)，实验细节见 [`course_project_grpo_clipping/README.md`](../README.md)。
+> **Note**: this is the project's original planning document (September 2026, written before the proposal), kept here for reference. Parts of it are out of date:
+> - The experiments actually run on the **NYU Torch cluster (one L40S)**, not Colab.
+> - The script sketch in Section 5 has been replaced by [`grpo_clipping_experiment.py`](../grpo_clipping_experiment.py).
+> - For current progress and results, see the [repository README](../../README.md); for experimental details, see [`course_project_grpo_clipping/README.md`](../README.md).
 
 ---
 
-# ARLArena 论文分析与课程项目规划
+# ARLArena: Paper Analysis and Course Project Plan
 
-> 论文:*ARLArena: A Unified Framework for Stable Agentic Reinforcement Learning*
+> Paper: *ARLArena: A Unified Framework for Stable Agentic Reinforcement Learning*
 > (Wang et al., ICML 2026, arXiv:2602.21534v3)
-> 代码:https://github.com/WillDreamer/ARL-Arena.git
+> Code: https://github.com/WillDreamer/ARL-Arena.git
 
-本文档分析该论文的研究方向、四维分解框架、创新点与 literature review 结构,并给出一个可落地的 NLP 课程项目规划(方向:稳定性分析 / 消融复现;算力:Colab 级)。
-
----
-
-## 一、研究方向 (What it studies)
-
-**核心主题:Agentic Reinforcement Learning (ARL) 的训练稳定性问题。**
-
-背景链条:
-
-1. 大模型(LLM)现在被越来越多地当作 **自主 agent** 来做多步交互任务(网页导航、具身环境、游戏、深度检索、工具调用)。
-2. 这类任务需要 **多轮 (multi-turn)** 训练目标,而不是单轮问答。用 RL 做后训练(post-training)是主流手段(DeepSeek-R1、OpenAI o1 都是例子)。
-3. **但 agentic RL(ARL)训练极不稳定,经常直接"崩溃"(training collapse)。** 原因是多轮交互带来的复合难题:无效动作、稀疏奖励、长程信用分配(credit assignment)、以及 agent-环境的非平稳性。早期一个小偏差会跨轮次级联放大,导致分布漂移、退化的 rollout。
-
-**这篇论文要解决的问题**:让 ARL 训练变得稳定、可复现、可扩展。它不是提出一个"更强的模型",而是提出一个**分析框架 + 稳定训练配方 + 新算法**。
-
-具体三件事:
-
-- **ARLArena**:一个标准化、可复现的多轮 ARL 测试平台(testbed)+ 系统性分析方法论。
-- 把 policy gradient(策略梯度)**分解成 4 个正交的设计维度**,逐一隔离分析每个维度对稳定性和性能的影响。
-- **SAMPO**(Stable Agentic Multi-turn Policy Optimization):基于分析得出的一套统一的策略优化方法,直接针对分析中发现的主要不稳定来源。
+This document analyzes the paper's research direction, its four-dimension decomposition framework, its contributions and its literature-review structure, and lays out a feasible NLP course project plan (direction: stability analysis / ablation reproduction; compute: Colab level).
 
 ---
 
-## 二、四个分解维度(论文的分析骨架)
+## 1. Research direction (what it studies)
 
-这是全文最核心的组织方式——把所有主流 RL 算法(GRPO、DAPO、GSPO、CISPO、SAPO、GiGPO、EMPG 等)沿着**同一套 4 个维度**对齐比较(见论文 Table 1):
+**Core topic: training stability in Agentic Reinforcement Learning (ARL).**
 
-| 维度 | 研究什么 | 关键发现 |
+Background:
+
+1. Large language models (LLMs) are increasingly used as **autonomous agents** for multi-step interactive tasks (web navigation, embodied environments, games, deep search, tool use).
+2. Such tasks need **multi-turn** training objectives rather than single-turn QA. RL post-training is the mainstream approach (DeepSeek-R1 and OpenAI o1 are examples).
+3. **But agentic RL (ARL) training is highly unstable and often collapses outright.** Multi-turn interaction compounds several difficulties: invalid actions, sparse rewards, long-horizon credit assignment, and non-stationary agent–environment dynamics. A small early deviation can cascade across turns, causing distribution drift and degenerate rollouts.
+
+**The problem the paper addresses**: making ARL training stable, reproducible and scalable. Rather than proposing a "stronger model", it proposes an **analysis framework + a stable training recipe + a new algorithm**.
+
+Concretely, three things:
+
+- **ARLArena**: a standardized, reproducible multi-turn ARL testbed plus a systematic analysis methodology.
+- **Decomposing the policy gradient into four orthogonal design dimensions**, and isolating the effect of each on stability and performance.
+- **SAMPO** (Stable Agentic Multi-turn Policy Optimization): a unified policy-optimization method derived from the analysis, targeting the main sources of instability it identifies.
+
+---
+
+## 2. The four design dimensions (the paper's analytical backbone)
+
+This is the paper's central organizing idea: all mainstream RL algorithms (GRPO, DAPO, GSPO, CISPO, SAPO, GiGPO, EMPG, etc.) are aligned and compared along **the same four dimensions** (see Table 1 of the paper):
+
+| Dimension | What it studies | Key finding |
 |---|---|---|
-| **1. Loss Aggregation**(损失聚合) | token-mean vs. seq-mean-token-mean | 序列级聚合在长度差异大的任务(如数学)上会因 token 权重不均而损害训练 |
-| **2. Importance Sampling (IS) Clipping**(重要性采样裁剪) | 容忍式裁剪 vs. 序列级裁剪 | **最敏感的维度**。宽松裁剪初期涨得快但会崩溃;序列级裁剪保证稳定提升(Finding 1) |
-| **3. Trajectory Filtering / Resampling**(轨迹过滤/动态采样) | 过滤掉零梯度轨迹 | 与 GiGPO 结合比与 GRPO 结合更稳定(Finding 4) |
-| **4. Advantage Design**(优势函数设计) | 引入环境级/全局-局部信息 | 引入细粒度环境优势能缓解奖励稀疏、提升性能(Finding 3) |
+| **1. Loss aggregation** | token-mean vs. seq-mean-token-mean | Sequence-level aggregation hurts training on tasks with large length variation (e.g., math) because tokens are weighted unevenly |
+| **2. Importance-sampling (IS) clipping** | tolerant clipping vs. sequence-level clipping | **The most sensitive dimension.** Tolerant clipping gains quickly early on but collapses; sequence-level clipping ensures stable improvement (Finding 1) |
+| **3. Trajectory filtering / resampling** | filtering out zero-gradient trajectories | More stable when combined with GiGPO than with GRPO (Finding 4) |
+| **4. Advantage design** | adding environment-level / global–local information | Fine-grained environment advantages alleviate reward sparsity and improve performance (Finding 3) |
 
-三个核心结论(论文摘要点明):
+Three core conclusions (stated in the abstract):
 
-1. 容忍式裁剪 → 崩溃;序列级裁剪 → 稳定。
-2. 把环境级信息加入 advantage 设计 → 稳定性和性能都提升。
-3. 动态采样 + 细粒度 advantage 设计结合 → 进一步受益。
+1. Tolerant clipping → collapse; sequence-level clipping → stability.
+2. Adding environment-level information to the advantage design → better stability and performance.
+3. Combining dynamic sampling with fine-grained advantage design → further gains.
 
-崩溃的**根因诊断**很值得学习:他们发现训练崩溃主要是由 **"负优势 + 低重要性比"的序列不断累积** 驱动的,并用 token 级/序列级 IS 分析(Figure 3 的 streamgraph)可视化验证。解决方法是 **sequence masking**(把这类有害序列屏蔽掉)。
-
----
-
-## 三、创新点 (Novelty)
-
-论文自己列的四条贡献:
-
-1. **统一视角**:把策略梯度和 PO 方法沿 4 个维度做统一分类——这是"综述式重构 + 实验对齐",让原本各说各话的方法可比较。
-2. **标准化、可复现的 testbed** 和多轮 ARL 稳定性诊断方法论(ARLArena)。
-3. **任务鲁棒的发现和补救措施**——针对常见崩溃模式给出诊断和修复(比如 sequence masking)。
-4. **SAMPO 新算法**:把序列级裁剪 + 细粒度 advantage(全局+局部)+ 动态过滤三者**统一到一个框架**,比 GRPO 基线平均提升 25.2%,并在 ALFWorld / WebShop / Sokoban / TIR Math 上做到稳定训练。
-
-一个额外有意思的实验(Section 5.3):用 SAMPO 训练的小开源模型(Qwen3-4B)能在 agentic 任务上**超过 GPT-5.2 和 o3 的多 agent 系统**——论点是"在 agentic 任务上,规范的 RL 训练比推理时的复杂工程更有价值"。
-
-**创新的方法论特征**(对写课程项目很有借鉴意义):
-
-- 不是发明全新组件,而是**"解耦—隔离—重组"**:把已有方法拆成正交维度,逐维消融(ablation),再把每维最优的选择重组成新方法。这是一种非常稳、非常"可发表"的科研套路。
-- 强调 **可复现性和公平比较**(标准化 testbed + 每个方法都做超参网格搜索)。
+The **root-cause diagnosis** of collapse is especially instructive: the authors find that collapse is driven mainly by the **accumulation of sequences with negative advantage and low importance ratio**, and they visualize this with token- and sequence-level IS analysis (the streamgraph in Figure 3). Their fix is **sequence masking** (masking out these harmful sequences).
 
 ---
 
-## 四、Literature Review 结构
+## 3. Contributions (novelty)
 
-论文的 related work 不是独立一节,而是**融进 Introduction 和 Table 1** 里(ML 会议常见写法)。引用的文献可分成几类:
+The paper lists four contributions:
 
-- **RL post-training 基础**:PPO (Schulman 2017)、InstructGPT/RLHF (Ouyang 2022)、KL 近似 (Schulman 2017 blog)。
-- **推理 RL**:DeepSeek-R1、OpenAI o1。
-- **PO 算法族(核心对比对象)**:GRPO、DAPO (Yu 2025)、GSPO (Zheng 2025)、CISPO (Chen 2025)、SAPO (Gao 2025)、GiGPO (Feng 2025)、EMPG (Wang 2025)。
-- **Agentic RL 框架/环境**:AgentGym、Agent-R1、AgentRL、RAGEN、SWEET-RL、verl(训练框架)。
-- **Agent 环境/benchmark**:ALFWorld、WebShop、WebArena、Sokoban、TIR Math、ReAct、Voyager、API-Bank。
-- **稳定性相关新工作**:CLEANER(自净化轨迹)、TIPS(turn-level reward shaping)、T²PO、Latent Poincaré shaping 等 2026 年的工作。
+1. **A unified perspective**: a common taxonomy of policy-gradient and PO methods along four dimensions. This "survey-style reframing + experimental alignment" makes methods that were previously described in incompatible ways directly comparable.
+2. **A standardized, reproducible testbed** and a methodology for diagnosing stability in multi-turn ARL (ARLArena).
+3. **Task-robust findings and remedies**: diagnoses and fixes for common collapse patterns (e.g., sequence masking).
+4. **A new algorithm, SAMPO**: it **unifies** sequence-level clipping, fine-grained advantages (global + local) and dynamic filtering in one framework, improves over the GRPO baseline by 25.2% on average, and trains stably on ALFWorld, WebShop, Sokoban and TIR Math.
+
+An additional interesting experiment (Section 5.3): a small open model (Qwen3-4B) trained with SAMPO **outperforms multi-agent systems built on GPT-5.2 and o3** on agentic tasks. The argument is that on agentic tasks, principled RL training is worth more than elaborate inference-time engineering.
+
+**Methodological features worth borrowing for a course project:**
+
+- Instead of inventing new components, the paper **decouples, isolates and recombines**: it splits existing methods into orthogonal dimensions, ablates each dimension, then recombines the best choice from each into a new method. This is a very solid and "publishable" research pattern.
+- It emphasizes **reproducibility and fair comparison** (a standardized testbed, plus a hyperparameter grid search for every method).
 
 ---
 
-## 五、NLP 课程项目规划
+## 4. Literature-review structure
 
-**方向:稳定性分析 / 消融复现。算力:Colab 级(少量 GPU)。**
+The paper has no standalone related-work section; related work is **woven into the Introduction and Table 1** (common in ML conference papers). The cited work falls into several groups:
 
-### 项目 scope:复现并验证一个 Finding
+- **Foundations of RL post-training**: PPO (Schulman 2017), InstructGPT/RLHF (Ouyang 2022), KL approximation (Schulman 2017 blog).
+- **RL for reasoning**: DeepSeek-R1, OpenAI o1.
+- **The PO algorithm family (the core comparison)**: GRPO, DAPO (Yu 2025), GSPO (Zheng 2025), CISPO (Chen 2025), SAPO (Gao 2025), GiGPO (Feng 2025), EMPG (Wang 2025).
+- **Agentic RL frameworks / environments**: AgentGym, Agent-R1, AgentRL, RAGEN, SWEET-RL, verl (training framework).
+- **Agent environments / benchmarks**: ALFWorld, WebShop, WebArena, Sokoban, TIR Math, ReAct, Voyager, API-Bank.
+- **Recent stability work**: CLEANER (self-purifying trajectories), TIPS (turn-level reward shaping), T²PO, latent Poincaré shaping, and other 2026 work.
 
-不要碰整个 ARLArena(4 环境 + Qwen3-4B/8B + H200,Colab 根本跑不动)。**聚焦复现论文 4 个维度中的 1 个,验证它的一条 Finding**,这就足够撑起一个课程项目。
+---
 
-**最推荐:复现 Finding 1(IS clipping 维度)—— "宽松裁剪导致崩溃 vs 序列级裁剪稳定"**
+## 5. NLP course project plan
 
-- 这是论文中**最敏感、信号最强**的维度,小规模也能看到明显的崩溃/稳定对比,画出来的曲线很有说服力。
-- 崩溃现象(reward 突然掉、KL/gradient norm 爆炸)在小模型上一样会出现,容易观察。
+**Direction: stability analysis / ablation reproduction. Compute: Colab level (a few GPUs).**
 
-**次选:Loss Aggregation 维度 —— token-mean vs seq-mean-token-mean**
+### Scope: reproduce and verify one finding
 
-- 实现最简单(就是 loss 归一化方式的差别),但信号弱一些,需要长度差异大的任务才明显。
+Do not attempt the whole of ARLArena (4 environments + Qwen3-4B/8B + H200; Colab cannot run it). **Focus on one of the paper's four dimensions and verify one of its findings.** That is enough for a course project.
 
-### 具体可行的技术栈(Colab 级)
+**First choice: reproduce Finding 1 (the IS-clipping dimension) — "tolerant clipping causes collapse vs. sequence-level clipping is stable"**
 
-| 组件 | 建议 |
+- This is the paper's **most sensitive dimension with the strongest signal**; a clear collapse-vs-stable contrast should be visible even at small scale, and the resulting curves are convincing.
+- Collapse symptoms (reward suddenly dropping, KL / gradient norm exploding) also occur in small models and are easy to observe.
+
+**Second choice: the loss-aggregation dimension — token-mean vs. seq-mean-token-mean**
+
+- The simplest to implement (it only changes how the loss is normalized), but the signal is weaker and only shows up clearly on tasks with large length variation.
+
+### A feasible tech stack (Colab level)
+
+| Component | Recommendation |
 |---|---|
-| 模型 | Qwen2.5-0.5B 或 1.5B-Instruct + **LoRA**(全参数训不动) |
-| 框架 | **TRL** 的 `GRPOTrainer`(比 verl 轻,Colab 友好),或 verl 单卡模式 |
-| 任务 | 二选一:①**GSM8K / 小数学题**(单轮、奖励好定义,先跑通 pipeline);②**极小 Sokoban**(3×3~4×4 网格,多轮但状态空间小) |
-| 变量 | 只改 clipping 策略:标准 PPO clip(宽松)vs 序列级 clip(GSPO 式),其余固定 |
-| 指标 | success rate / reward、off-policy KL、gradient norm、out-of-bounds token 比例——**照着论文 Figure 2 的 5 个 panel 画** |
+| Model | Qwen2.5-0.5B or 1.5B-Instruct + **LoRA** (full-parameter training is infeasible) |
+| Framework | **TRL**'s `GRPOTrainer` (lighter than verl, Colab-friendly), or verl in single-GPU mode |
+| Task | One of: (1) **GSM8K / small math problems** (single-turn, easy-to-define reward; get the pipeline working first); (2) **a tiny Sokoban** (3×3 to 4×4 grid; multi-turn but with a small state space) |
+| Variable | Change only the clipping rule: standard PPO clip (tolerant) vs. sequence-level clip (GSPO-style); keep everything else fixed |
+| Metrics | success rate / reward, off-policy KL, gradient norm, fraction of out-of-bounds tokens — **plot them like the five panels of the paper's Figure 2** |
 
-先用数学任务跑通整条 RL pipeline(最省事),再决定要不要上多轮 agent 环境。多轮环境即使用最小 Sokoban 也会明显更难调。
+Get the full RL pipeline working on the math task first (the easiest route), then decide whether to add a multi-turn agent environment. Even a minimal Sokoban is noticeably harder to tune.
 
-### 项目叙事(报告怎么写)
+### Project narrative (how to write the report)
 
-1. **Related work / lit review**:直接用论文 Table 1 的框架——把 GRPO/DAPO/GSPO/CISPO 沿 4 维度对齐介绍(你只深入其中 1 维)。
-2. **方法**:形式化你研究的那个维度,给出你对比的两个变体。
-3. **实验**:小模型 + 小任务,画训练动态曲线,复现崩溃 vs 稳定。
-4. **分析(你的"创新点"来源)**:课程项目不需要新算法。贡献可以是:
-   - **"在更小规模上验证论文 Finding 是否成立"**(scale-down 复现本身就有价值);
-   - 或提出一个小观察 / 小变体(比如换个 masking 阈值、换个任务看结论是否迁移)。
+1. **Related work / literature review**: reuse the framework of the paper's Table 1, introducing GRPO/DAPO/GSPO/CISPO along the four dimensions (going deep on only one).
+2. **Method**: formalize the dimension under study and present the two variants being compared.
+3. **Experiments**: small model + small task; plot training dynamics and reproduce collapse vs. stability.
+4. **Analysis (where the "novelty" comes from)**: a course project does not need a new algorithm. The contribution can be:
+   - **verifying whether the paper's finding holds at a smaller scale** (a scale-down reproduction is valuable in itself);
+   - or a small observation / variant (e.g., a different masking threshold, or a different task to test whether the conclusion transfers).
 
-### 一个诚实的提醒
+### An honest caveat
 
-多轮 agentic RL 即使小规模,在 Colab 上也**很容易 OOM 或跑很久**(rollout 慢、环境交互开销大)。因此强烈建议:**先用单轮数学任务把"崩溃 vs 稳定"的对比做出来**,把它作为项目的稳妥核心;多轮 agent 环境作为 stretch goal,时间够再加。这样不会因为环境搭不起来而整个项目卡死。
+Even at small scale, multi-turn agentic RL **easily runs out of memory or takes a long time on Colab** (slow rollouts, costly environment interaction). So it is strongly recommended to **first establish the collapse-vs-stable contrast on a single-turn math task** as the safe core of the project, and treat the multi-turn agent environment as a stretch goal if time allows. That way the whole project does not stall because an environment cannot be set up.
 
 ---
 
-## 六、Proposal 提交要求 (Assignment Instructions)
+## 6. Proposal requirements (assignment instructions)
 
 Please submit your Project Proposal for this assignment. Your proposal should present an initial plan for your project (which you may revise as your work progresses) and address the aspects outlined below.
 
