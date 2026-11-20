@@ -1,4 +1,28 @@
-# Does Stable Agentic RL Scale Down?
+# GRPO Stability Lab
+
+**A controlled small-model study of reinforcement-learning post-training: clipping, reward design and reproducible evaluation.**
+
+NYU NLP course project — Yuxuan Feng, Yixuan Ma and Lilei Wu. Built on the research questions in [ARLArena](https://github.com/WillDreamer/ARL-Arena), with our TRL/LoRA implementation in [course_project_grpo_clipping](course_project_grpo_clipping/).
+
+## Portfolio overview
+
+| Work | What it demonstrates |
+| --- | --- |
+| Four configurations of clipping granularity and width | Controlled ablation design and reasoning about optimizer behavior |
+| Qwen2.5-0.5B + LoRA on GSM8K | Implementing an economical LLM post-training pipeline |
+| Diagnosing a format-reward failure and moving to boxed answers | Reward debugging and recognizing reward hacking rather than trusting the scalar reward |
+| Slurm jobs, saved configurations and per-step logs | Reproducible GPU experimentation and operational debugging |
+| Comparing accuracy, KL, clipping and response length | Interpreting results with multiple diagnostics and stating limitations |
+
+The completed pilot contains **four 300-step runs with one seed**. Final held-out accuracy ranges from **36.9% to 39.7%**; neither main variant collapsed. These runs establish the pipeline and expose differences in clipping behavior, but do not establish a statistically reliable winner.
+
+![Training dynamics from the four completed pilot runs](course_project_grpo_clipping/results/v2/v2_dynamics.png)
+
+**Review in this order:** [experiment and results](course_project_grpo_clipping/README.md), [training code](course_project_grpo_clipping/grpo_clipping_experiment.py), [run configurations and logs](course_project_grpo_clipping/results/v2/), and [original research plan](course_project_grpo_clipping/docs/project_planning.md). Training requires a suitable GPU; reviewing the saved evidence does not.
+
+The sections below preserve the research background, detailed findings, next steps and upstream attribution.
+
+## Research context: Does stable agentic RL scale down?
 
 **NYU NLP course project · Team 4 (Yuxuan Feng, Yixuan Ma, Lilei Wu)**
 
